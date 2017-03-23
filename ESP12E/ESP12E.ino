@@ -24,8 +24,12 @@
 #define	PASS	"epitechforward42A"
 
 // Server
-const char*	host_ip = "192.168.1.101";
+const char*	host_ip = "192.168.1.100";
 const int	host_port = 10000;
+
+// Misc
+#define		TEXT_START_POINT	530
+#define		NEXT_LINE			30
 
 ESP8266WiFiClass	g_wifi;
 wl_status_t			g_status;
@@ -38,12 +42,49 @@ double	current_mA = 0;
 double	loadvoltage = 0;
 double	energy = 0;
 
-void ina219values() {
+int		currentLine = TEXT_START_POINT;
+
+void	resetPrintLine() {
+	currentLine = TEXT_START_POINT;
+}
+
+int		getPrintLine() {
+	currentLine += NEXT_LINE;
+	return (currentLine - NEXT_LINE);
+}
+
+void	ina219values() {
 	shuntvoltage = ina219.getShuntVoltage_mV();
 	busvoltage = ina219.getBusVoltage_V();
 	current_mA = ina219.getCurrent_mA();
 	loadvoltage = busvoltage + (shuntvoltage / 1000);
 	energy += loadvoltage * current_mA / 3600;
+}
+
+bool	connectToHost() {
+	Serial.print(String("Trying to reach the host on ") + host_ip);
+	while (!g_client.connect(host_ip, host_port)) {
+		Serial.print('.');
+		delay(500);
+	}
+	Serial.println(" Done !");
+}
+
+void	clearScreen() {
+	epd_reset();
+	epd_screen_rotation(EPD_INVERSION);
+	resetPrintLine();
+}
+
+void	drawQRCode() {
+	epd_disp_bitmap("CF03.BMP", 175, 75);
+	delay(500);
+}
+
+void	splashScreen() {
+	epd_disp_bitmap("CF02.BMP", 100, 100);
+	epd_update();
+	delay(3000);
 }
 
 void setup() {
@@ -60,6 +101,7 @@ void setup() {
 	epd_set_memory(MEM_NAND);
 	epd_screen_rotation(EPD_INVERSION);
 	Serial.println("E-Paper initialized");
+	splashScreen();
 
 	// wifi connection init
 	g_wifi.mode(WIFI_STA);
@@ -71,8 +113,7 @@ void setup() {
 	}
 	Serial.println("Done !");
 	g_wifi.setAutoReconnect(true);
-	epd_disp_string(("Connected to the network SSID " + String(SSID)).c_str(), 0, 0);
-	epd_disp_string((String("Local IP is ") + g_wifi.localIP().toString()).c_str(), 0, 30);
+	epd_disp_string((String("Connecte au reseau. IP ") + g_wifi.localIP().toString()).c_str(), 0, getPrintLine());
 	epd_update();
 	delay(1000);
 	Serial.println("Local IP	: " + g_wifi.localIP().toString());
@@ -81,35 +122,37 @@ void setup() {
 	Serial.println("DNS IP		: " + g_wifi.dnsIP().toString());
 
 	// distant host init
-
-	epd_disp_string((String("Trying to reach the host on ") + host_ip).c_str(), 0, 60);
+	epd_disp_string("En attente du serveur", 0, getPrintLine());
 	epd_update();
-	delay(1000);
-	Serial.print(String("Trying to reach the host on ") + host_ip);
-	while (!g_client.connect(host_ip, host_port)) {
-		Serial.print('.');
-		delay(500);
-	}
-	Serial.println(" Done !");
-//	Serial.println("Local IP	: " + g_client.localIP().toString());
-	Serial.println("Host IP		: " + g_client.remoteIP().toString());
-	epd_disp_string("Connected to the host ", 0, 90);
-	epd_update();
-	delay(100);
+	delay(500);
+	connectToHost();
 
-	g_client.println("The Quick Brown Fox jumps over the Lazy Dog");
+	clearScreen();
+	drawQRCode();
+	epd_disp_string("Commencez votre exercice", 0, getPrintLine());
+	epd_update();
+	delay(2000);
 	Serial.println("Setup finished");
 }
 
 void loop() {
-//	g_client.println("The quick brown fox jumps over the lazy dog");
-	ina219values();
-	//Serial.print(loadvoltage * current_mA);
-	//Serial.print("mW	");
-	//Serial.print(energy);
-	//Serial.println("mWh");
+	if (!g_client.connected() || g_client.status() == CLOSED) {
+		Serial.println("Connection lost");
+		clearScreen();
+		drawQRCode();
+		epd_disp_string("Connection perdu, votre progression sera sauvegardee", 0, getPrintLine());
+		epd_update();
+		delay(500);
 
+		connectToHost();
+
+		clearScreen();
+		drawQRCode();
+		epd_disp_string("Continuez votre exercice", 0, getPrintLine());
+		epd_update();
+		delay(500);
+	}
+	ina219values();
 	g_client.print(String("{\"V\": ") + loadvoltage + ", \"A\": " + (current_mA / 1000) + ", \"W\": " + ((loadvoltage * current_mA) / 1000) + "}");
-//	g_client.println(String(loadvoltage * current_mA) + "mW, " + energy + "mWh");
-	delay(1000);
+	delay(950);
 }
